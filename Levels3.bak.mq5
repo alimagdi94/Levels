@@ -4,48 +4,43 @@
 
 #include <Trade/Trade.mqh>
 
-input group "1) POI Detection (Core Strategy)"
-input int      InpTouchCount                 = 3;        // How many touches are needed before a POI line is confirmed (typical: 3-5)
-input int      InpTouchTolerancePoints       = 20;       // Price tolerance for counting a touch, in points (higher = easier to count touches)
-input int      InpMaxLevelCandidates         = 300;      // Internal memory for possible levels (leave default unless EA misses levels)
-input bool     InpUseHighAndLowAsTouches     = true;     // true = count candle High/Low as touches (recommended for beginners)
-input bool     InpUseCloseAsTouchSource      = false;    // true = also count candle Close as touches (can increase signals/noise)
-input bool     InpResetAfterBreak            = true;     // true = after a break, old POI is cleared and a new one is searched
+input group "General"
+input int      InpTouchCount                 = 3;        // Required touches to lock POI
+input int      InpTouchTolerancePoints       = 20;       // Touch tolerance (points)
+input int      InpMaxLevelCandidates         = 300;      // Internal candidate capacity
+input bool     InpUseHighAndLowAsTouches     = true;     // Use both high and low as touch sources
+input bool     InpUseCloseAsTouchSource      = false;    // Also use close as touch source
+input bool     InpResetAfterBreak            = true;     // Build a new POI after break
 
-input group "2) Chart Display (Visual Only)"
-input color    InpPOILineColor               = clrOrange; // POI horizontal line color
-input int      InpPOILineWidth               = 2;         // POI line thickness
-input ENUM_LINE_STYLE InpPOILineStyle        = STYLE_SOLID; // POI line style
-input color    InpBreakMarkerColor           = clrBlue;   // Break candle highlight color
-input bool     InpShowVolumeCheckText        = true;      // Show text: break volume highest or not
-input int      InpVolumeTextFontSize         = 8;         // Text size for break label
+input group "Visuals"
+input color    InpPOILineColor               = clrOrange;
+input int      InpPOILineWidth               = 2;
+input ENUM_LINE_STYLE InpPOILineStyle        = STYLE_SOLID;
+input color    InpBreakMarkerColor           = clrBlue;
+input bool     InpShowVolumeCheckText        = true;
+input int      InpVolumeTextFontSize         = 8;
 
-input group "3) Trading & Risk (levels) - Beginner Friendly"
-input bool     InpEnableTrading              = false;    // Master switch: OFF = no trades, ON = EA can trade
-input bool     InpUseRiskBasedSizing         = true;     // ON = lot size uses Risk %; OFF = fixed lot size
-input double   InpRiskPercent                = 1.0;      // Risk per trade (%) when risk-based sizing is ON
-input double   InpFixedLotIfRiskOff          = 0.10;     // Fixed lot size (used when risk sizing is OFF/invalid)
-input bool     InpUseStopLoss                = true;     // ON = place Stop Loss on entry
-input int      InpStopLossPoints             = 300;      // Stop Loss distance in points
-input bool     InpUseTakeProfit              = true;     // ON = place Take Profit on entry
-input int      InpTakeProfitPoints           = 600;      // Take Profit distance in points
-input double   InpMinLot                     = 0.01;     // Minimum lot size allowed
-input double   InpMaxLot                     = 100.0;    // Maximum lot size allowed
-input int      InpSlippagePoints             = 20;       // Max allowed slippage (points)
-input bool     InpAllowBuy                   = true;     // Allow BUY entries
-input bool     InpAllowSell                  = true;     // Allow SELL entries
-input ulong    InpMagicNumber                = 550001;   // Unique strategy ID (magic number)
-input bool     InpUseSpreadFilter            = true;     // ON = block entries when spread is too high
-input int      InpMaxSpreadPoints            = 30;       // Max spread allowed (points)
-input bool     InpUseHardProfitLock          = true;     // ON = stop trading after daily profit target is hit
-input double   InpHardProfitTargetMoney      = 100.0;    // Daily profit target in account currency
-input bool     InpClosePositionsOnHardLock   = true;     // ON = close managed positions when profit lock is hit
-input bool     InpRiskScopeMagicOnly         = true;     // Manage only this EA's magic number
-input bool     InpRiskScopeSymbolOnly        = true;     // Manage only this chart symbol
-input bool     InpEnableTrailing             = true;     // ON = use trailing stop
-input int      InpTrailingStartPoints        = 200;      // Start trailing after this profit (points)
-input int      InpTrailingDistancePoints     = 150;      // Trailing SL gap from current price (points)
-input int      InpTrailingStepPoints         = 20;       // Minimum SL move before updating trailing (points)
+input group "levels (Risk Management)"
+input bool     InpEnableTrading              = false;    // If true, place market order on valid break
+input double   InpRiskPercent                = 1.0;      // Risk per trade (% of balance)
+input double   InpFixedLotIfRiskOff          = 0.10;     // Used when risk is 0 or SL invalid
+input int      InpStopLossPoints             = 300;      // Stop loss distance in points
+input int      InpTakeProfitPoints           = 600;      // Take profit distance in points
+input double   InpMinLot                     = 0.01;     // Lot clamp min
+input double   InpMaxLot                     = 100.0;    // Lot clamp max
+input int      InpSlippagePoints             = 20;       // Max slippage (points)
+input bool     InpAllowBuy                   = true;
+input bool     InpAllowSell                  = true;
+input ulong    InpMagicNumber                = 550001;
+input int      InpMaxSpreadPoints            = 30;       // Hard spread filter in points
+input double   InpHardProfitTargetMoney      = 100.0;    // Hard DAILY profit target in account currency (0 = off)
+input bool     InpClosePositionsOnHardLock   = true;     // Close strategy positions when hard lock triggers
+input bool     InpRiskScopeMagicOnly         = true;     // Apply management only to this EA magic
+input bool     InpRiskScopeSymbolOnly        = true;     // Apply management only to chart symbol
+input bool     InpEnableTrailing             = true;     // Enable trailing stop management
+input int      InpTrailingStartPoints        = 200;      // Start trailing after profit >= this many points
+input int      InpTrailingDistancePoints     = 150;      // SL distance from current price in points
+input int      InpTrailingStepPoints         = 20;       // Minimum SL improvement step in points
 
 struct SLevelCandidate
 {
@@ -135,7 +130,7 @@ void RefreshHardProfitLock()
       g_risk_lock_active = false;
    }
 
-   if(!InpUseHardProfitLock || InpHardProfitTargetMoney <= 0.0)
+   if(InpHardProfitTargetMoney <= 0.0)
       return;
 
    const double baseline = (g_risk_day_start_balance > 0.0) ? g_risk_day_start_balance : AccountInfoDouble(ACCOUNT_BALANCE);
@@ -161,12 +156,9 @@ bool IsTradingAllowedByRisk()
    if(ask <= 0.0 || bid <= 0.0)
       return false;
 
-   if(InpUseSpreadFilter && InpMaxSpreadPoints > 0)
-   {
-      const double spread_points = (ask - bid) / _Point;
-      if(spread_points > InpMaxSpreadPoints)
-         return false;
-   }
+   const double spread_points = (ask - bid) / _Point;
+   if(InpMaxSpreadPoints > 0 && spread_points > InpMaxSpreadPoints)
+      return false;
 
    return true;
 }
@@ -311,11 +303,6 @@ void MarkBreakCandle(const datetime t, const double high, const double low, cons
 
 double CalculateLotsByRisk(const double entry_price, const double stop_price)
 {
-   if(!InpUseRiskBasedSizing)
-      return InpFixedLotIfRiskOff;
-   if(!InpUseStopLoss)
-      return InpFixedLotIfRiskOff;
-
    const double risk_pct = InpRiskPercent;
    if(risk_pct <= 0.0)
       return InpFixedLotIfRiskOff;
@@ -380,16 +367,16 @@ void TryTradeOnBreak(const int direction)
    if(direction > 0)
    {
       const double entry = ask;
-      const double sl = InpUseStopLoss ? NormalizeDouble(entry - InpStopLossPoints * _Point, _Digits) : 0.0;
-      const double tp = InpUseTakeProfit ? NormalizeDouble(entry + InpTakeProfitPoints * _Point, _Digits) : 0.0;
+      const double sl = NormalizeDouble(entry - InpStopLossPoints * _Point, _Digits);
+      const double tp = NormalizeDouble(entry + InpTakeProfitPoints * _Point, _Digits);
       const double lots = CalculateLotsByRisk(entry, sl);
       g_trade.Buy(lots, _Symbol, 0.0, sl, tp, "levels buy break");
    }
    else if(direction < 0)
    {
       const double entry = bid;
-      const double sl = InpUseStopLoss ? NormalizeDouble(entry + InpStopLossPoints * _Point, _Digits) : 0.0;
-      const double tp = InpUseTakeProfit ? NormalizeDouble(entry - InpTakeProfitPoints * _Point, _Digits) : 0.0;
+      const double sl = NormalizeDouble(entry + InpStopLossPoints * _Point, _Digits);
+      const double tp = NormalizeDouble(entry - InpTakeProfitPoints * _Point, _Digits);
       const double lots = CalculateLotsByRisk(entry, sl);
       g_trade.Sell(lots, _Symbol, 0.0, sl, tp, "levels sell break");
    }
@@ -495,15 +482,11 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    if(InpTouchTolerancePoints < 1)
       return INIT_PARAMETERS_INCORRECT;
-   if(InpUseStopLoss && InpStopLossPoints < 1)
+   if(InpStopLossPoints < 1 || InpTakeProfitPoints < 1)
       return INIT_PARAMETERS_INCORRECT;
-   if(InpUseTakeProfit && InpTakeProfitPoints < 1)
+   if(InpRiskPercent < 0.0 || InpFixedLotIfRiskOff <= 0.0)
       return INIT_PARAMETERS_INCORRECT;
-   if(InpUseRiskBasedSizing && InpRiskPercent < 0.0)
-      return INIT_PARAMETERS_INCORRECT;
-   if(InpFixedLotIfRiskOff <= 0.0)
-      return INIT_PARAMETERS_INCORRECT;
-   if(InpUseHardProfitLock && InpHardProfitTargetMoney < 0.0)
+   if(InpHardProfitTargetMoney < 0.0)
       return INIT_PARAMETERS_INCORRECT;
 
    ArrayResize(g_candidates, 0);
