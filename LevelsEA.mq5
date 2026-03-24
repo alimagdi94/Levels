@@ -33,14 +33,14 @@ input bool     InpAllowBuy                   = true;
 input bool     InpAllowSell                  = true;
 input ulong    InpMagicNumber                = 550001;
 input int      InpMaxSpreadPoints            = 30;       // Hard spread filter in points
-input int      InpMaxTradesPerDay            = 5;        // Hard daily trade cap (0 = off)
-input double   InpHardDailyProfitTargetMoney = 100.0;    // Hard daily profit target in account currency (0 = off)
-input double   InpHardDailyProfitTargetPct   = 0.0;      // Hard daily profit target in % of day-start balance (0 = off)
-input double   InpHardDailyLossLimitMoney    = 100.0;    // Hard daily loss limit in account currency (0 = off)
-input double   InpHardDailyLossLimitPct      = 0.0;      // Hard daily loss limit in % of day-start balance (0 = off)
+input double   InpHardProfitTargetMoney      = 100.0;    // Hard DAILY profit target in account currency (0 = off)
 input bool     InpClosePositionsOnHardLock   = true;     // Close strategy positions when hard lock triggers
-input bool     InpRiskScopeMagicOnly         = true;     // Risk stats filtered by this EA magic
-input bool     InpRiskScopeSymbolOnly        = true;     // Risk stats filtered by chart symbol
+input bool     InpRiskScopeMagicOnly         = true;     // Apply management only to this EA magic
+input bool     InpRiskScopeSymbolOnly        = true;     // Apply management only to chart symbol
+input bool     InpEnableTrailing             = true;     // Enable trailing stop management
+input int      InpTrailingStartPoints        = 200;      // Start trailing after profit >= this many points
+input int      InpTrailingDistancePoints     = 150;      // SL distance from current price in points
+input int      InpTrailingStepPoints         = 20;       // Minimum SL improvement step in points
 
 struct SLevelCandidate
 {
@@ -61,8 +61,6 @@ int    g_break_count              = 0;
 bool   g_risk_lock_active         = false;
 datetime g_risk_day_start         = 0;
 double g_risk_day_start_balance   = 0.0;
-double g_risk_today_closed_pnl    = 0.0;
-int    g_risk_today_closed_trades = 0;
 
 string BuildPrefix()
 {
@@ -94,24 +92,6 @@ datetime DayStartTime(const datetime t)
    return StructToTime(dt);
 }
 
-bool DealInRiskScope(const ulong deal_ticket)
-{
-   if(InpRiskScopeMagicOnly)
-   {
-      const long deal_magic = HistoryDealGetInteger(deal_ticket, DEAL_MAGIC);
-      if((ulong)deal_magic != InpMagicNumber)
-         return false;
-   }
-
-   if(InpRiskScopeSymbolOnly)
-   {
-      const string deal_symbol = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
-      if(deal_symbol != _Symbol)
-         return false;
-   }
-   return true;
-}
-
 void CloseManagedPositions()
 {
    for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -138,7 +118,7 @@ void CloseManagedPositions()
    }
 }
 
-void RefreshDailyRiskState()
+void RefreshHardProfitLock()
 {
    const datetime now = TimeCurrent();
    const datetime day_start = DayStartTime(now);
@@ -150,49 +130,19 @@ void RefreshDailyRiskState()
       g_risk_lock_active = false;
    }
 
-   g_risk_today_closed_pnl = 0.0;
-   g_risk_today_closed_trades = 0;
-
-   if(!HistorySelect(g_risk_day_start, now))
+   if(InpHardProfitTargetMoney <= 0.0)
       return;
 
-   const int deals = (int)HistoryDealsTotal();
-   for(int i = 0; i < deals; i++)
-   {
-      const ulong deal = HistoryDealGetTicket(i);
-      if(deal == 0 || !DealInRiskScope(deal))
-         continue;
-
-      const long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
-      if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY && entry != DEAL_ENTRY_INOUT)
-         continue;
-
-      const double profit = HistoryDealGetDouble(deal, DEAL_PROFIT);
-      const double commission = HistoryDealGetDouble(deal, DEAL_COMMISSION);
-      const double swap = HistoryDealGetDouble(deal, DEAL_SWAP);
-
-      g_risk_today_closed_pnl += (profit + commission + swap);
-      g_risk_today_closed_trades++;
-   }
-
-   const double pct_base = (g_risk_day_start_balance > 0.0) ? g_risk_day_start_balance : AccountInfoDouble(ACCOUNT_BALANCE);
-   const double profit_target_money = InpHardDailyProfitTargetMoney;
-   const double profit_target_pct_money = (InpHardDailyProfitTargetPct > 0.0) ? (pct_base * (InpHardDailyProfitTargetPct / 100.0)) : 0.0;
-   const double loss_limit_money = InpHardDailyLossLimitMoney;
-   const double loss_limit_pct_money = (InpHardDailyLossLimitPct > 0.0) ? (pct_base * (InpHardDailyLossLimitPct / 100.0)) : 0.0;
-
-   const bool hit_profit_lock = ((profit_target_money > 0.0 && g_risk_today_closed_pnl >= profit_target_money) ||
-                                 (profit_target_pct_money > 0.0 && g_risk_today_closed_pnl >= profit_target_pct_money));
-   const bool hit_loss_lock = ((loss_limit_money > 0.0 && g_risk_today_closed_pnl <= -loss_limit_money) ||
-                               (loss_limit_pct_money > 0.0 && g_risk_today_closed_pnl <= -loss_limit_pct_money));
-
-   if(hit_profit_lock || hit_loss_lock)
+   const double baseline = (g_risk_day_start_balance > 0.0) ? g_risk_day_start_balance : AccountInfoDouble(ACCOUNT_BALANCE);
+   const double equity_now = AccountInfoDouble(ACCOUNT_EQUITY);
+   const double day_profit = equity_now - baseline;
+   if(day_profit >= InpHardProfitTargetMoney)
       g_risk_lock_active = true;
 }
 
 bool IsTradingAllowedByRisk()
 {
-   RefreshDailyRiskState();
+   RefreshHardProfitLock();
 
    if(g_risk_lock_active)
    {
@@ -200,9 +150,6 @@ bool IsTradingAllowedByRisk()
          CloseManagedPositions();
       return false;
    }
-
-   if(InpMaxTradesPerDay > 0 && g_risk_today_closed_trades >= InpMaxTradesPerDay)
-      return false;
 
    const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -214,6 +161,71 @@ bool IsTradingAllowedByRisk()
       return false;
 
    return true;
+}
+
+void ManageTrailingStops()
+{
+   if(!InpEnableTrailing)
+      return;
+   if(InpTrailingStartPoints <= 0 || InpTrailingDistancePoints <= 0 || InpTrailingStepPoints <= 0)
+      return;
+
+   const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   if(bid <= 0.0 || ask <= 0.0)
+      return;
+
+   g_trade.SetExpertMagicNumber(InpMagicNumber);
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      const ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || !PositionSelectByTicket(ticket))
+         continue;
+
+      if(InpRiskScopeMagicOnly)
+      {
+         const long pos_magic = PositionGetInteger(POSITION_MAGIC);
+         if((ulong)pos_magic != InpMagicNumber)
+            continue;
+      }
+      if(InpRiskScopeSymbolOnly)
+      {
+         const string pos_symbol = PositionGetString(POSITION_SYMBOL);
+         if(pos_symbol != _Symbol)
+            continue;
+      }
+
+      const ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      const double open = PositionGetDouble(POSITION_PRICE_OPEN);
+      const double current_sl = PositionGetDouble(POSITION_SL);
+      const double current_tp = PositionGetDouble(POSITION_TP);
+
+      if(type == POSITION_TYPE_BUY)
+      {
+         const double profit_points = (bid - open) / _Point;
+         if(profit_points < InpTrailingStartPoints)
+            continue;
+
+         const double proposed_sl = NormalizeDouble(bid - InpTrailingDistancePoints * _Point, _Digits);
+         const bool has_no_sl = (current_sl <= 0.0);
+         const bool enough_step = ((proposed_sl - current_sl) / _Point) >= InpTrailingStepPoints;
+         if((has_no_sl || enough_step) && proposed_sl < bid)
+            g_trade.PositionModify(ticket, proposed_sl, current_tp);
+      }
+      else if(type == POSITION_TYPE_SELL)
+      {
+         const double profit_points = (open - ask) / _Point;
+         if(profit_points < InpTrailingStartPoints)
+            continue;
+
+         const double proposed_sl = NormalizeDouble(ask + InpTrailingDistancePoints * _Point, _Digits);
+         const bool has_no_sl = (current_sl <= 0.0);
+         const bool enough_step = ((current_sl - proposed_sl) / _Point) >= InpTrailingStepPoints;
+         if((has_no_sl || enough_step) && proposed_sl > ask)
+            g_trade.PositionModify(ticket, proposed_sl, current_tp);
+      }
+   }
 }
 
 double NormalizePriceToStep(const double price)
@@ -474,14 +486,14 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    if(InpRiskPercent < 0.0 || InpFixedLotIfRiskOff <= 0.0)
       return INIT_PARAMETERS_INCORRECT;
+   if(InpHardProfitTargetMoney < 0.0)
+      return INIT_PARAMETERS_INCORRECT;
 
    ArrayResize(g_candidates, 0);
    g_last_bar_time = 0;
    g_poi_line_name = POILineName();
    g_risk_day_start = 0;
    g_risk_day_start_balance = 0.0;
-   g_risk_today_closed_pnl = 0.0;
-   g_risk_today_closed_trades = 0;
    g_risk_lock_active = false;
    ResetPOI();
    return INIT_SUCCEEDED;
@@ -489,6 +501,10 @@ int OnInit()
 
 void OnTick()
 {
+   RefreshHardProfitLock();
+   if(g_risk_lock_active && InpClosePositionsOnHardLock)
+      CloseManagedPositions();
+   ManageTrailingStops();
    ProcessClosedBar();
 }
 
