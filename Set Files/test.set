@@ -1,0 +1,55 @@
+; saved on 2026.03.24 — HFT ULTRA-HIGH FREQUENCY CONVERSION
+; Optimized for maximum trade frequency: minimal SL, both directions, tight TP, aggressive signals
+; Changes from original:
+;   - TouchCount 2→1 (fire on first touch, not second)
+;   - UseCloseAsTouchSource false→true (more signal sources)
+;   - ResetAfterBreak true→false (keep levels active after break for re-entries)
+;   - StopLoss 300→50 pts (ultra-tight, scalper SL)
+;   - TakeProfit disabled→enabled at 60 pts (1.2:1 RR, fast exit)
+;   - AllowSell false→true (trade both directions)
+;   - Trailing enabled with tight 15pt trail
+;   - Slippage 20→5 (tighter execution control)
+;   - MaxSpread 0→8 pts (only trade in tight-spread conditions)
+;   - RiskPercent 2→1 (lower per-trade risk compensated by volume)
+;   - MaxLot 0.2→5.0 (headroom for compounding)
+;   - HardProfitTargetMoney 100→500 (don't lock out early in a hot session)
+; 1) POI Detection (Core Strategy)
+InpTouchCount=1||1||1||10||N
+InpTouchTolerancePoints=15||10||1||100||N
+InpMaxLevelCandidates=500||300||1||3000||N
+InpUseHighAndLowAsTouches=true||false||0||true||N
+InpUseCloseAsTouchSource=true||false||0||true||N
+InpResetAfterBreak=false||false||0||true||N
+; 2) Chart Display (Visual Only)
+InpPOILineColor=42495
+InpPOILineWidth=1||1||1||20||N
+InpPOILineStyle=0||0||0||4||N
+InpBreakMarkerColor=255
+InpShowVolumeCheckText=true||false||0||true||N
+InpVolumeTextFontSize=8||8||1||80||N
+; 3) Trading & Risk (HFT Mode)
+InpEnableTrading=true||false||0||true||N
+InpUseRiskBasedSizing=true||false||0||true||N
+InpRiskPercent=1||0.5||0.100000||5.000000||N
+InpFixedLotIfRiskOff=0.1||0.1||0.010000||1.000000||N
+InpUseStopLoss=true||false||0||true||N
+InpStopLossPoints=50||30||1||300||N
+InpUseTakeProfit=true||false||0||true||N
+InpTakeProfitPoints=60||40||5||300||N
+InpMinLot=0.01||0.01||0.001000||0.100000||N
+InpMaxLot=5.0||5.0||0.100000||50.000000||N
+InpSlippagePoints=5||5||1||50||N
+InpAllowBuy=true||false||0||true||N
+InpAllowSell=true||false||0||true||N
+InpMagicNumber=550001||550001||1||5500010||N
+InpUseSpreadFilter=true||false||0||true||N
+InpMaxSpreadPoints=8||8||1||30||N
+InpUseHardProfitLock=true||false||0||true||N
+InpHardProfitTargetMoney=500.0||200.0||50.000000||2000.000000||N
+InpClosePositionsOnHardLock=true||false||0||true||N
+InpRiskScopeMagicOnly=true||false||0||true||N
+InpRiskScopeSymbolOnly=true||false||0||true||N
+InpEnableTrailing=true||false||0||true||N
+InpTrailingStartPoints=20||15||5||200||N
+InpTrailingDistancePoints=15||15||5||150||N
+InpTrailingStepPoints=5||5||1||50||N
